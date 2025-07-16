@@ -17,56 +17,72 @@
 static const std::vector<int> RULE_BIRTH    = { 3 };
 static const std::vector<int> RULE_SURVIVAL = { 2, 3 };
 
-// Check if a vector contains a value
 static bool contains(const std::vector<int>& v, int x)
 {
     return std::find(v.begin(), v.end(), x) != v.end();
 }
 
 // --------------------- Global Simulation State ---------------------
-int gridWidth  = 100;
-int gridHeight = 100;
+int gridWidth = 100, gridHeight = 100;
 std::vector<uint8_t> grid, nextGrid;
 
-bool running = false;
-bool stepOnce = false;
-float speed = 10.0f;              // generations per second
+bool running = false, stepOnce = false;
+float speed = 10.0f;  // generations per second
 
-// Selection & clipboard
-bool selecting = false;
-ImVec2 selStart, selEnd;
+// Edit modes for mouse input
+enum class EditMode { None, Copy, Cut, Paste };
+EditMode editMode = EditMode::None;
+// Selection coords
+int selX0 = -1, selY0 = -1, selX1 = -1, selY1 = -1;
+// Clipboard
 std::vector<std::pair<int,int>> clipboard;
 
 // --------------------- Utility Functions ---------------------
-// Resize and clear both buffers to new dimensions
 void resizeGrid(int w, int h)
 {
-    gridWidth = w;
-    gridHeight = h;
-    grid.assign(w * h, 0);
-    nextGrid.assign(w * h, 0);
+    gridWidth = w; gridHeight = h;
+    grid.assign(w*h, 0);
+    nextGrid.assign(w*h, 0);
 }
 
-// Count live neighbors with wrap-around edges
+/*
+// wraps around screen
 int countNeighbors(int x, int y)
 {
-    int count = 0;
+    int c = 0;
     for (int dy=-1; dy<=1; dy++)
     {
         for (int dx=-1; dx<=1; dx++)
         {
             if (dx==0 && dy==0) continue;
-            
             int nx = (x + dx + gridWidth) % gridWidth;
             int ny = (y + dy + gridHeight) % gridHeight;
-            
-            count += grid[ny*gridWidth + nx];
+            c += grid[ny*gridWidth + nx];
         }
     }
-    return count;
+    return c;
+}
+*/
+// doesn't wrap around
+int countNeighbors(int x, int y)
+{
+    int c = 0;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            if (dx == 0 && dy == 0) continue;
+            int nx = x + dx;
+            int ny = y + dy;
+            if (nx >= 0 && nx < gridWidth && ny >= 0 && ny < gridHeight)
+            {
+                c += grid[ny * gridWidth + nx];
+            }
+        }
+    }
+    return c;
 }
 
-// Advance one generation
 void updateGrid()
 {
     for (int y=0; y<gridHeight; y++)
@@ -75,237 +91,273 @@ void updateGrid()
         {
             int idx = y*gridWidth + x;
             int n = countNeighbors(x, y);
-            if (grid[idx])
-            {
-                // live cell survives only if in RULE_SURVIVAL
-                nextGrid[idx] = contains(RULE_SURVIVAL, n) ? 1 : 0;
-            } else
-            {
-                // dead cell is born only if in RULE_BIRTH
-                nextGrid[idx] = contains(RULE_BIRTH, n) ? 1 : 0;
-            }
+            nextGrid[idx] = grid[idx] ? (contains(RULE_SURVIVAL, n) ? 1 : 0) : (contains(RULE_BIRTH, n)    ? 1 : 0);
         }
     }
     grid.swap(nextGrid);
 }
 
-// Reset to empty grid
 void resetGrid()
 {
     std::fill(grid.begin(), grid.end(), 0);
 }
 
-// Draw grid as points
-void drawGrid(float cellSize)
+void drawGrid(float cs)
 {
     glBegin(GL_POINTS);
-    for (int y = 0; y < gridHeight; y++)
+    for (int y=0; y<gridHeight; y++)
     {
-        for (int x = 0; x < gridWidth; x++)
+        for (int x=0; x<gridWidth; x++)
         {
             if (grid[y * gridWidth + x])
             {
-                glVertex2f(x * cellSize, y * cellSize);
+                glVertex2f(x * cs + cs / 2.0f, y * cs + cs / 2.0f);
             }
         }
     }
     glEnd();
 }
 
-// Convert window mouse position to cell coordinates
-bool mouseToCell(const ImVec2& mp, int& outX, int& outY, float cellSize)
+void drawGridLines(float cs)
 {
-    outX = int(mp.x / cellSize);
-    outY = int(mp.y / cellSize);
-    
-    return outX >= 0 && outX < gridWidth && outY >= 0 && outY < gridHeight;
+    glColor4f(0.5f, 0.5f, 0.5f, 0.5f); // line color
+    glBegin(GL_LINES);
+    for (int x = 0; x <= gridWidth; ++x)
+    {
+        glVertex2f(x * cs, 0);
+        glVertex2f(x * cs, gridHeight * cs);
+    }
+    for (int y = 0; y <= gridHeight; ++y)
+    {
+        glVertex2f(0, y * cs);
+        glVertex2f(gridWidth * cs, y * cs);
+    }
+    glEnd();
 }
 
-// Extract pattern from selection rect into clipboard
-void copySelection(int x0, int y0, int x1, int y1)
+bool mouseToCell(double mx, double my, int& cx, int& cy, float cs)
+{
+    cx = int(mx/cs); cy = int(my/cs);
+    return cx>=0 && cx<gridWidth && cy>=0 && cy<gridHeight;
+}
+
+void copySelection()
 {
     clipboard.clear();
-    for (int y = y0; y <= y1; y++)
+    for (int y=selY0; y<=selY1; y++)
     {
-        for (int x = x0; x <= x1; x++)
+        for (int x=selX0; x<=selX1; x++)
         {
-            if (grid[y * gridWidth + x])
-            {
-                clipboard.emplace_back(x - x0, y - y0);
-            }
+            if (grid[y*gridWidth + x])
+                clipboard.emplace_back(x - selX0, y - selY0);
         }
     }
 }
 
-// Clear pattern in selection rect
-void cutSelection(int x0, int y0, int x1, int y1)
+void cutSelection()
 {
-    copySelection(x0,y0,x1,y1);
-    for (int y = y0; y <= y1; y++)
+    copySelection();
+    for (int y=selY0; y<=selY1; y++)
     {
-        for (int x = x0; x <= x1; x++)
+        for (int x=selX0; x<=selX1; x++)
         {
-            grid[y * gridWidth + x] = 0;
+            grid[y*gridWidth + x] = 0;
         }
     }
 }
 
-// Paste clipboard at target cell
-void pasteClipboard(int tx, int ty)
+void pasteClipboard(int tx, int ty) 
 {
-    for (auto &p : clipboard)
+    for (auto &p : clipboard) 
     {
         int x = tx + p.first;
         int y = ty + p.second;
-        
-        if (x >= 0 && x < gridWidth && y >= 0 && y < gridHeight)
+        if (x>=0 && x<gridWidth && y>=0 && y<gridHeight)
         {
-            grid[y * gridWidth + x] = 1;
+            grid[y*gridWidth + x] = 1;
         }
     }
+    editMode = EditMode::None;
 }
 
 // --------------------- Main ---------------------
 int main()
 {
-    // GLFW & OpenGL init
+    // GLFW & Glad init
     if (!glfwInit()) return -1;
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    GLFWwindow* window = glfwCreateWindow(800, 800, "Game of Life", glfwGetPrimaryMonitor(), nullptr);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
+    GLFWwindow* window = glfwCreateWindow(900,900, "Game of Life", nullptr, nullptr);
     if (!window)
     {
         glfwTerminate(); return -1;
     }
     glfwMakeContextCurrent(window);
-    gladLoadGL();
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
+        std::cerr<<"Failed to init GLAD"; return -1;
+    }
     glPointSize(5.0f);
-    
+
     // ImGui init
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
+    ImGui_ImplOpenGL3_Init("#version 330 core");
 
-    // Initialize grid buffers
+    // Setup grid
     resizeGrid(gridWidth, gridHeight);
-
     auto lastTime = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
 
-    // Main loop
     while (!glfwWindowShouldClose(window))
     {
-        // Time delta
+        // Time
         auto now = std::chrono::high_resolution_clock::now();
-        float delta = std::chrono::duration<float>(now - lastTime).count();
-        lastTime = now;
-        accumulator += delta;
+        float dt = std::chrono::duration<float>(now - lastTime).count();
+        lastTime = now; accumulator += dt;
 
-        // Start new ImGui frame
+        // ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // --- Controls Window ---
+        // Controls
         ImGui::Begin("Controls");
-        if (ImGui::Button(running ? "Pause" : "Start"))
+        if (ImGui::Button(running?"Pause":"Start"))
         {
             running = !running;
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Step"))
+        ImGui::SameLine(); if (ImGui::Button("Step"))
         {
             stepOnce = true;
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Reset"))
+        ImGui::SameLine(); if (ImGui::Button("Reset"))
         {
             resetGrid();
         }
-        if (ImGui::Button("Copy") && selStart.x <= selEnd.x)
+        ImGui::Separator();
+        if (ImGui::Button("Copy"))
         {
-            int x0=int(selStart.x), y0=int(selStart.y), x1=int(selEnd.x), y1=int(selEnd.y);
-            copySelection(x0,y0,x1,y1);
+            editMode = EditMode::Copy;
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cut") && selStart.x <= selEnd.x)
+        ImGui::SameLine(); if (ImGui::Button("Cut"))
         {
-            int x0=int(selStart.x), y0=int(selStart.y), x1=int(selEnd.x), y1=int(selEnd.y);
-            cutSelection(x0,y0,x1,y1);
+            editMode = EditMode::Cut;
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Paste") && !clipboard.empty())
+        if (!clipboard.empty())
         {
-            ImVec2 mp = ImGui::GetIO().MousePos;
-            int cx, cy;
-            float cellSize = 800.0f / std::max(gridWidth, gridHeight);
-            if (mouseToCell(mp, cx, cy, cellSize)) pasteClipboard(cx,cy);
+            ImGui::SameLine(); if (ImGui::Button("Paste")) editMode = EditMode::Paste;
         }
-        ImGui::SliderInt("Width", &gridWidth, 10, 1000);
-        ImGui::SliderInt("Height", &gridHeight, 10, 1000);
+        /*ImGui::SliderInt("Width", &gridWidth, 10, 1000);
+        ImGui::SliderInt("Height",&gridHeight,10,1000);
         if (ImGui::IsItemDeactivatedAfterEdit())
         {
             resizeGrid(gridWidth, gridHeight);
-        }
-        ImGui::SliderFloat("Speed (gen/sec)", &speed, 0.1f, 60.0f);
+        }*/
+        ImGui::SliderFloat("Speed (gen/sec)", &speed, 0.1f, 100.0f);
         ImGui::End();
 
-        // --- Handle selection ---
-        ImVec2 mp = ImGui::GetIO().MousePos;
-        float cellSize = 800.0f / std::max(gridWidth, gridHeight);
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered())
+        // Mouse & cell mapping
+        double mx,my;
+        glfwGetCursorPos(window, &mx, &my);
+        int fbw, fbh; glfwGetFramebufferSize(window, &fbw, &fbh);
+        float cellSize = std::min((float)fbw,(float)fbh) / std::max(gridWidth, gridHeight);
+
+        int cx, cy;
+        bool inGrid = mouseToCell(mx, my, cx, cy, cellSize);
+        
+        bool leftDown  = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)==GLFW_PRESS;
+        bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT)==GLFW_PRESS;
+
+        // Editing
+        if (!ImGui::GetIO().WantCaptureMouse)
         {
-            selecting = true;
-            mouseToCell(mp, *(int*)&selStart.x, *(int*)&selStart.y, cellSize);
-            selEnd = selStart;
-        }
-        if (selecting && ImGui::IsMouseDown(ImGuiMouseButton_Left))
-        {
-            mouseToCell(mp, *(int*)&selEnd.x, *(int*)&selEnd.y, cellSize);
-        }
-        if (selecting && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-        {
-            selecting = false;
-            
-            // normalize
-            if (selStart.x > selEnd.x) std::swap(selStart.x, selEnd.x);
-            if (selStart.y > selEnd.y) std::swap(selStart.y, selEnd.y);
+            switch (editMode)
+            {
+            case EditMode::Copy:
+            case EditMode::Cut:
+                {
+                    if (leftDown && selX0<0 && inGrid)
+                    {
+                        selX0=cx; selY0=cy; selX1=cx; selY1=cy;
+                    } else if (leftDown && selX0>=0)
+                    {
+                        selX1=cx; selY1=cy;
+                    } else if (!leftDown && selX0>=0)
+                    {
+                        // finalize
+                        if (selX1<selX0) std::swap(selX0, selX1);
+                        if (selY1<selY0) std::swap(selY0, selY1);
+                        if (editMode==EditMode::Copy) copySelection();
+                        else cutSelection();
+                        selX0=selY0=selX1=selY1=-1;
+                        editMode=EditMode::None;
+                    }
+                } break;
+            case EditMode::Paste:
+                if (leftDown && inGrid)
+                {
+                    pasteClipboard(cx, cy);
+                }
+                break;
+                /*
+                case EditMode::None:
+                if (leftDown && inGrid)
+                {
+                    grid[cy*gridWidth+cx] ^= 1;  // TOGGLE CELL STATE
+                }
+                break;
+                */
+            case EditMode::None:
+                if (leftDown && inGrid)
+                {
+                    grid[cy * gridWidth + cx] = 1; 
+                }
+                else if (rightDown && inGrid)
+                {
+                    grid[cy * gridWidth + cx] = 0; 
+                }
+                break;
+            }
         }
 
-        // --- Simulation Update ---
-        if ((running && accumulator >= 1.0f/speed) || stepOnce)
+        // Simulation update
+        if ((running && accumulator>=1.0f/speed) || stepOnce)
         {
-            updateGrid();
-            accumulator = 0.0f;
-            stepOnce = false;
+            updateGrid(); accumulator=0; stepOnce=false;
         }
 
-        // --- Rendering ---
-        glViewport(0,0,800,800);
+        // Render
+        glViewport(0,0,fbw,fbh);
         glClearColor(0.1f,0.1f,0.1f,1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-
-        // Draw cells
+        glDisable(GL_DEPTH_TEST);
         glMatrixMode(GL_PROJECTION); glLoadIdentity();
         glOrtho(0, gridWidth*cellSize, gridHeight*cellSize, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-        glColor3f(0.2f, 1.0f, 0.2f);
-        drawGrid(cellSize);
-
+        
+        glLineWidth(1.0f); 
+        glDisable(GL_DEPTH_TEST);     // Ensure depth doesn't obscure lines
+        glColor3f(1.0f, 1.0f, 1.0f);  // Use bright color
+        glLineWidth(1.0f);            // Explicitly set line width (even if limited)
+        drawGridLines(cellSize);      // Draw the grid lines   
+        glColor3f(0.2f, 1.0f, 0.2f);       // live cells color
+        glPointSize(cellSize);            
+        drawGrid(cellSize);               // draw cells
+        glPointSize(cellSize);
+        
         // Draw selection rectangle
-        if (!selecting && selStart.x<=selEnd.x)
+        if (selX0>=0)
         {
             ImDrawList* dl = ImGui::GetForegroundDrawList();
-            ImVec2 a{ selStart.x*cellSize, selStart.y*cellSize };
-            ImVec2 b{ (selEnd.x+1)*cellSize, (selEnd.y+1)*cellSize };
-            dl->AddRect(a, b, IM_COL32(255,255,0,200), 0.0f, 0, 2.0f);
+            ImVec2 a{(float)selX0*cellSize, (float)selY0*cellSize};
+            ImVec2 b{(float)(selX1+1)*cellSize, (float)(selY1+1)*cellSize};
+            dl->AddRect(a,b,IM_COL32(255,255,0,200),0.0f,0,2.0f);
         }
-
-        // Render ImGui
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
         glfwSwapBuffers(window);
         glfwPollEvents();
     }

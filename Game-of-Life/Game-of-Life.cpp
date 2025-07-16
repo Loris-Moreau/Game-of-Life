@@ -18,6 +18,7 @@
 static const std::vector<int> RULE_BIRTH    = { 3 };
 static const std::vector<int> RULE_SURVIVAL = { 2, 3 };
 
+// Utility function to check if a number is in a vector
 static bool contains(const std::vector<int>& v, int x)
 {
     return std::find(v.begin(), v.end(), x) != v.end();
@@ -34,6 +35,7 @@ struct PairHash
 
 // --------------------- Global Simulation State ---------------------
 std::unordered_set<std::pair<int, int>, PairHash> liveCells;
+// Simulation control variables
 bool running = false, stepOnce = false;
 float speed = 10.0f;
 float offsetX = 50.0f, offsetY = 50.0f; // Camera offset
@@ -43,6 +45,7 @@ void updateLiveCells()
 {
     std::unordered_map<std::pair<int, int>, int, PairHash> neighborCounts;
 
+    // Count neighbors for each live cell
     for (const auto& cell : liveCells)
     {
         int x = cell.first, y = cell.second;
@@ -50,7 +53,7 @@ void updateLiveCells()
         {
             for (int dx = -1; dx <= 1; dx++)
             {
-                if (dx == 0 && dy == 0) continue;
+                if (dx == 0 && dy == 0) continue; // Skip the cell itself
                 std::pair<int, int> neighbor = {x + dx, y + dy};
                 neighborCounts[neighbor]++;
             }
@@ -58,6 +61,7 @@ void updateLiveCells()
     }
 
     std::unordered_set<std::pair<int, int>, PairHash> newLiveCells;
+    // Determine which cells survive or are born
     for (const auto& [cell, count] : neighborCounts)
     {
         bool alive = liveCells.count(cell) > 0;
@@ -65,6 +69,7 @@ void updateLiveCells()
             newLiveCells.insert(cell);
     }
 
+    // Replace old set with new generation
     liveCells = std::move(newLiveCells);
 }
 
@@ -83,7 +88,7 @@ void drawLiveCells(float cs)
 
 void drawGridLines(float cs, float winW, float winH)
 {
-    glColor4f(0.5f, 0.5f, 0.5f, 0.5f); // light gray
+    glColor4f(0.5f, 0.5f, 0.5f, 0.5f); // Grid Lines Color
     glBegin(GL_LINES);
     for (float x = 0; x <= winW; x += cs)
     {
@@ -101,6 +106,7 @@ void drawGridLines(float cs, float winW, float winH)
 // --------------------- Main ---------------------
 int main()
 {
+    // Initialize GLFW and create a window
     if (!glfwInit()) return -1;
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -108,29 +114,36 @@ int main()
     GLFWwindow* window = glfwCreateWindow(900,900, "Game of Life", nullptr, nullptr);
     if (!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
+
+    // Load OpenGL functions via GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         std::cerr<<"Failed to init GLAD"; return -1;
     }
-
-    glPointSize(5.0f);
+    
+    glPointSize(5.0f); // Set default point size for cells
+    
+    // Initialize ImGui
     IMGUI_CHECKVERSION(); ImGui::CreateContext();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
 
     auto lastTime = std::chrono::high_resolution_clock::now();
-    float accumulator = 0.0f;
+    float accumulator = 0.0f; // Time accumulator for simulation timing
 
+    // --------------------- Main Loop ---------------------
     while (!glfwWindowShouldClose(window))
     {
         auto now = std::chrono::high_resolution_clock::now();
         float dt = std::chrono::duration<float>(now - lastTime).count();
         lastTime = now; accumulator += dt;
 
+        // New ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // --------------------- ImGui Controls ---------------------
         ImGui::Begin("Controls");
         if (ImGui::Button(running ? "Pause" : "Start")) running = !running;
         ImGui::SameLine(); if (ImGui::Button("Step")) stepOnce = true;
@@ -140,12 +153,16 @@ int main()
         ImGui::SliderFloat("Offset Y", &offsetY, -500.0f, 500.0f);
         ImGui::End();
 
-        double mx, my; glfwGetCursorPos(window, &mx, &my);
-        int fbw, fbh; glfwGetFramebufferSize(window, &fbw, &fbh);
-        float cs = 10.0f; // Cell Size
+        // --------------------- Mouse Interaction ---------------------
+        double mx, my;
+        glfwGetCursorPos(window, &mx, &my);
+        int fbw, fbh;
+        glfwGetFramebufferSize(window, &fbw, &fbh);
+        float cs = 10.0f; // Cell size in pixels
         int cx = int(mx / cs + offsetX);
         int cy = int(my / cs + offsetY);
 
+        // Handle mouse input for toggling cells
         bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
 
@@ -161,30 +178,38 @@ int main()
             }
         }
 
+        // Update simulation based on speed or if manually stepping
         if ((running && accumulator >= 1.0f/speed) || stepOnce)
         {
             updateLiveCells(); accumulator = 0; stepOnce = false;
         }
 
+        // --------------------- Rendering ---------------------
         glViewport(0,0,fbw,fbh);
-        glClearColor(0.1f,0.1f,0.1f,1.0f);
+        glClearColor(0.1f,0.1f,0.1f,1.0f); // bg
         glClear(GL_COLOR_BUFFER_BIT);
+
+        // Orthographic Projection
         glMatrixMode(GL_PROJECTION); glLoadIdentity();
         glOrtho(0, fbw, fbh, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
         
         drawGridLines(cs, fbw, fbh);
 
-        glColor3f(0.2f, 1.0f, 0.2f);
+        glColor3f(0.2f, 1.0f, 0.2f); // Cell Color
         glPointSize(cs);
         drawLiveCells(cs);
 
+        // Render ImGui UI
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        // Swap buffers and poll input
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
+    // --------------------- Cleanup ---------------------
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

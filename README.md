@@ -12,6 +12,8 @@ Built with GLFW, Glad, ImGui, and OpenGL 3.
 - controls via ImGui.
 - Visual grid overlay and smooth rendering using OpenGL points.
 
+![Glider Gun](https://github.com/Loris-Moreau/Game-of-Life/blob/main/Images/GliderGun.png "Glider Gun")
+
 ## How It Works
 
 The simulation stores live cells as coordinate pairs in an unordered set. On each update, it counts the neighbours of every live cell, then applies the classic Game of Life rules:
@@ -37,4 +39,4 @@ User input allows :
 2. Compile & run
 3. Have fun
 
-![](https://github.com/Loris-Moreau/Game-of-Life/blob/tree/main/Images/GliderGun.gif)
+![](https://github.com/Loris-Moreau/Game-of-Life/blob/main/Images/GliderGun.gif)

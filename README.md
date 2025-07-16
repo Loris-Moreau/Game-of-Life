@@ -21,8 +21,12 @@ The simulation stores live cells as coordinate pairs in an unordered set. On eac
 - A dead cell with exactly 3 neighbours becomes alive.
 - A live cell survives if it has 2 or 3 neighbours; otherwise, it dies.
 
-Cells outside the current viewport are not limited — the grid is conceptually infinite and sparse, so only active cells are tracked.
+<i>ps: these rule are at the top of the file & you can freely change them.</i>
 
+<br>
+
+Cells outside the current viewport are not limited — the grid is conceptually infinite and sparse, so only active cells are tracked.
+<br>
 User input allows :
 - Left mouse button adds a live cell at the cursor.
 - Right mouse button removes a live cell.

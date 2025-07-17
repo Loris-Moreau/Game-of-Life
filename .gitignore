@@ -10,8 +10,11 @@
 # Precompiled Headers
 *.gch
 *.pch
+
+# Folders
 *.idea
 *.vs
+*x64
 
 # Compiled Dynamic libraries
 *.so
@@ -26,6 +29,7 @@
 *.la
 *.a
 *.lib
+
 # KEEP DLLs
 !.dll
 

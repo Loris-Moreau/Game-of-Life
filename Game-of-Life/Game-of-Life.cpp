@@ -1,4 +1,4 @@
-// Conway's Game of Life (Sparse Infinite Grid)
+// Conway's Game of Life 
 // C++ implementation using GLFW, Glad, ImGui, and OpenGL 3
 
 #include <algorithm>
@@ -107,13 +107,20 @@ void drawLiveCells(float cs, float winW, float winH)
 
 void drawGridLines(float cs, float winW, float winH)
 {
+    glLineWidth(2.5f);
     glColor4f(0.5f, 0.5f, 0.5f, 0.5f); // Grid Lines Color
     glBegin(GL_LINES);
     // Calculate offset in pixels
     float offX_px = fmod(offsetX * cs, cs);
-    if (offX_px < 0) offX_px += cs;
+    if (offX_px < 0)
+    {
+        offX_px += cs;
+    }
     float offY_px = fmod(offsetY * cs, cs);
-    if (offY_px < 0) offY_px += cs;
+    if (offY_px < 0)
+    {
+        offY_px += cs;
+    }
     // Vertical lines
     for (float x = -offX_px; x <= winW; x += cs)
     {
@@ -133,12 +140,18 @@ void drawGridLines(float cs, float winW, float winH)
 int main()
 {
     // Initialize GLFW and create a window
-    if (!glfwInit()) return -1;
+    if (!glfwInit())
+    {
+        return -1;
+    }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
     GLFWwindow* window = glfwCreateWindow(900,900, "Game of Life", nullptr, nullptr);
-    if (!window) { glfwTerminate(); return -1; }
+    if (!window)
+    {
+        glfwTerminate(); return -1;
+    }
     glfwMakeContextCurrent(window);
     // Enable VSync for frame rate limiting
     glfwSwapInterval(1);
@@ -171,12 +184,22 @@ int main()
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-
         // --------------------- ImGui Controls ---------------------
         ImGui::Begin("Controls");
-        if (ImGui::Button(running ? "Pause" : "Start")) running = !running;
-        ImGui::SameLine(); if (ImGui::Button("Step")) stepOnce = true;
-        ImGui::SameLine(); if (ImGui::Button("Clear")) { liveCells.clear(); generationCount = 0; }
+        if (ImGui::Button(running ? "Pause" : "Start"))
+        {
+            running = !running;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Step"))
+        {
+            stepOnce = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear"))
+        {
+            liveCells.clear(); generationCount = 0;
+        }
         ImGui::SliderFloat("Speed", &speed, 0.1f, 100.0f);
         ImGui::Text("Generation: %d", generationCount);
         ImGui::End();
@@ -213,19 +236,23 @@ int main()
             double dx = mx - dragStartX;
             double dy = my - dragStartY;
             if (!leftDragging && std::sqrt(dx*dx + dy*dy) > 5.0)
+            {
                 leftDragging = true;
+            }
             if (leftDragging && !ImGui::GetIO().WantCaptureMouse)
-        {
+            {
                 offsetX -= dx / cellSize;
                 offsetY -= dy / cellSize;
                 dragStartX = mx; dragStartY = my;
             }
-            }
+        }
         else if (!leftDown && leftWasDown) // release
-            {
+        {
             if (!leftDragging && !ImGui::GetIO().WantCaptureMouse)
+            {
                 liveCells.insert({cx, cy});
             }
+        }
         leftWasDown = leftDown;
 
         // Erase with right click
@@ -242,7 +269,7 @@ int main()
 
         // --------------------- Rendering ---------------------
         glViewport(0,0,fbw,fbh);
-        glClearColor(0.1f,0.1f,0.1f,1.0f); // bg
+        glClearColor(0.4f,0.4f,0.4f,1.0f); // bg
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Orthographic Projection
@@ -252,7 +279,7 @@ int main()
         
         drawGridLines(cellSize, fbw, fbh);
 
-        glColor3f(0.2f, 1.0f, 0.2f); // Cell Color
+        glColor3f(0.25f, 0.9f, 0.25f); // Cell Color
         glPointSize(cellSize);
         drawLiveCells(cellSize, fbw, fbh);
 

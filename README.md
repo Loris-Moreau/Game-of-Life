@@ -21,7 +21,7 @@ The simulation stores live cells as coordinate pairs in an unordered set. On eac
 - A dead cell with exactly 3 neighbours becomes alive.
 - A live cell survives if it has 2 or 3 neighbours; otherwise, it dies.
 
-<i>ps: these rule are at the top of the file & you can freely change them.</i>
+<i>ps: These rules are at the top of the file & you can freely change them.</i>
 
 <br>
 
@@ -30,6 +30,8 @@ Cells outside the current viewport are not limited — the grid is conceptually 
 User input allows :
 - Left mouse button adds a live cell at the cursor.
 - Right mouse button removes a live cell.
+- Left click & drag pans the camera
+- Mouse wheel allows you to zoom in & out
 - Controls for speed, camera offset, and simulation state are exposed via the GUI.
 
 ## Requirements

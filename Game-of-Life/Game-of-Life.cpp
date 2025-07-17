@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <unordered_map>
 #include <unordered_set>
@@ -34,11 +35,18 @@ struct PairHash
 };
 
 // --------------------- Global Simulation State ---------------------
-std::unordered_set<std::pair<int, int>, PairHash> liveCells;
+static std::unordered_set<std::pair<int, int>, PairHash> liveCells;
+static int generationCount = 0;
 // Simulation control variables
-bool running = false, stepOnce = false;
-float speed = 10.0f;
-float offsetX = 50.0f, offsetY = 50.0f; // Camera offset
+static bool running = false, stepOnce = false;
+static float speed = 10.0f;
+static float offsetX = 50.0f, offsetY = 50.0f; // Camera offset
+static float cellSize = 20.0f; // Cell size in pixels
+
+// Mouse drag state for panning
+static bool leftWasDown = false;
+static bool leftDragging = false;
+static double dragStartX = 0.0, dragStartY = 0.0;
 
 // --------------------- Simulation Update ---------------------
 void updateLiveCells()
@@ -53,34 +61,45 @@ void updateLiveCells()
         {
             for (int dx = -1; dx <= 1; dx++)
             {
-                if (dx == 0 && dy == 0) continue; // Skip the cell itself
-                std::pair<int, int> neighbor = {x + dx, y + dy};
-                neighborCounts[neighbor]++;
+                if (!(dx == 0 && dy == 0))
+                {
+                    neighborCounts[{x + dx, y + dy}]++;
+                }
             }
         }
     }
 
     std::unordered_set<std::pair<int, int>, PairHash> newLiveCells;
     // Determine which cells survive or are born
-    for (const auto& [cell, count] : neighborCounts)
+    for (const auto& kv : neighborCounts)
     {
+        const auto& cell = kv.first;
+        int count = kv.second;
         bool alive = liveCells.count(cell) > 0;
         if ((alive && contains(RULE_SURVIVAL, count)) || (!alive && contains(RULE_BIRTH, count)))
+        {
             newLiveCells.insert(cell);
+        }
     }
 
     // Replace old set with new generation
     liveCells = std::move(newLiveCells);
+    generationCount++;
 }
 
 // --------------------- Drawing ---------------------
-void drawLiveCells(float cs)
+void drawLiveCells(float cs, float winW, float winH)
 {
     glBegin(GL_POINTS);
     for (const auto& cell : liveCells)
     {
         float x = (cell.first - offsetX) * cs + cs / 2.0f;
         float y = (cell.second - offsetY) * cs + cs / 2.0f;
+        // Frustum culling: draw only visible cells
+        if (x < 0 || x > winW || y < 0 || y > winH)
+        {
+            continue;
+        }
         glVertex2f(x, y);
     }
     glEnd();
@@ -90,12 +109,19 @@ void drawGridLines(float cs, float winW, float winH)
 {
     glColor4f(0.5f, 0.5f, 0.5f, 0.5f); // Grid Lines Color
     glBegin(GL_LINES);
-    for (float x = 0; x <= winW; x += cs)
+    // Calculate offset in pixels
+    float offX_px = fmod(offsetX * cs, cs);
+    if (offX_px < 0) offX_px += cs;
+    float offY_px = fmod(offsetY * cs, cs);
+    if (offY_px < 0) offY_px += cs;
+    // Vertical lines
+    for (float x = -offX_px; x <= winW; x += cs)
     {
         glVertex2f(x, 0);
         glVertex2f(x, winH);
     }
-    for (float y = 0; y <= winH; y += cs)
+    // Horizontal lines
+    for (float y = -offY_px; y <= winH; y += cs)
     {
         glVertex2f(0, y);
         glVertex2f(winW, y);
@@ -114,11 +140,14 @@ int main()
     GLFWwindow* window = glfwCreateWindow(900,900, "Game of Life", nullptr, nullptr);
     if (!window) { glfwTerminate(); return -1; }
     glfwMakeContextCurrent(window);
+    // Enable VSync for frame rate limiting
+    glfwSwapInterval(1);
 
     // Load OpenGL functions via GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
-        std::cerr<<"Failed to init GLAD"; return -1;
+        std::cerr << "Failed to init GLAD" << '\n';
+        return -1;
     }
     
     glPointSize(5.0f); // Set default point size for cells
@@ -147,10 +176,9 @@ int main()
         ImGui::Begin("Controls");
         if (ImGui::Button(running ? "Pause" : "Start")) running = !running;
         ImGui::SameLine(); if (ImGui::Button("Step")) stepOnce = true;
-        ImGui::SameLine(); if (ImGui::Button("Clear")) liveCells.clear();
+        ImGui::SameLine(); if (ImGui::Button("Clear")) { liveCells.clear(); generationCount = 0; }
         ImGui::SliderFloat("Speed", &speed, 0.1f, 100.0f);
-        ImGui::SliderFloat("Offset X", &offsetX, -500.0f, 500.0f);
-        ImGui::SliderFloat("Offset Y", &offsetY, -500.0f, 500.0f);
+        ImGui::Text("Generation: %d", generationCount);
         ImGui::End();
 
         // --------------------- Mouse Interaction ---------------------
@@ -158,27 +186,55 @@ int main()
         glfwGetCursorPos(window, &mx, &my);
         int fbw, fbh;
         glfwGetFramebufferSize(window, &fbw, &fbh);
-        float cs = 10.0f; // Cell size in pixels
-        int cx = int(mx / cs + offsetX);
-        int cy = int(my / cs + offsetY);
+        
+        int cx = int(mx / cellSize + offsetX);
+        int cy = int(my / cellSize + offsetY);
 
         // Handle mouse input for toggling cells
         bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
 
-        if (!ImGui::GetIO().WantCaptureMouse)
+        // Zoom control with scroll wheel
+        float scrollY = ImGui::GetIO().MouseWheel;
+        if (!ImGui::GetIO().WantCaptureMouse && scrollY != 0.0f)
         {
-            if (rightDown)
-            {
-                liveCells.erase({cx, cy});
-            }
-            else if (leftDown)
-            {
-                liveCells.insert({cx, cy});
-            }
+            cellSize *= (scrollY > 0 ? 1.1f : 0.9f);
+            cellSize = std::clamp(cellSize, 2.0f, 100.0f);
         }
 
-        // Update simulation based on speed or if manually stepping
+        // Pan with left click drag, add cell on click
+        if (leftDown && !leftWasDown) // press
+        {
+            dragStartX = mx; dragStartY = my;
+            leftDragging = false;
+        }
+        else if (leftDown && leftWasDown) // held
+        {
+            double dx = mx - dragStartX;
+            double dy = my - dragStartY;
+            if (!leftDragging && std::sqrt(dx*dx + dy*dy) > 5.0)
+                leftDragging = true;
+            if (leftDragging && !ImGui::GetIO().WantCaptureMouse)
+        {
+                offsetX -= dx / cellSize;
+                offsetY -= dy / cellSize;
+                dragStartX = mx; dragStartY = my;
+            }
+            }
+        else if (!leftDown && leftWasDown) // release
+            {
+            if (!leftDragging && !ImGui::GetIO().WantCaptureMouse)
+                liveCells.insert({cx, cy});
+            }
+        leftWasDown = leftDown;
+
+        // Erase with right click
+        if (rightDown && !ImGui::GetIO().WantCaptureMouse)
+        {
+            liveCells.erase({cx, cy});
+        }
+
+        // --------------------- Simulation Step ---------------------
         if ((running && accumulator >= 1.0f/speed) || stepOnce)
         {
             updateLiveCells(); accumulator = 0; stepOnce = false;
@@ -194,11 +250,11 @@ int main()
         glOrtho(0, fbw, fbh, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW); glLoadIdentity();
         
-        drawGridLines(cs, fbw, fbh);
+        drawGridLines(cellSize, fbw, fbh);
 
         glColor3f(0.2f, 1.0f, 0.2f); // Cell Color
-        glPointSize(cs);
-        drawLiveCells(cs);
+        glPointSize(cellSize);
+        drawLiveCells(cellSize, fbw, fbh);
 
         // Render ImGui UI
         ImGui::Render();
